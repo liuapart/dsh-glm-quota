@@ -26,7 +26,7 @@ function ensureStyles() {
 	styleTag = document.createElement("style");
 	styleTag.textContent = [
 		"#dsh-gq-badge{display:inline-flex;align-items:center;flex:none;" +
-		"margin:0 7px 0 0;padding:0;height:20px;line-height:20px;" +
+		"margin:0 2px 0 0;padding:0;height:20px;line-height:20px;" +
 		"font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10px;" +
 		"font-weight:500;letter-spacing:.15px;white-space:nowrap;" +
 		"pointer-events:none;user-select:none;-webkit-user-select:none;" +
