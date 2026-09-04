@@ -1,6 +1,6 @@
 # @apanoo/dsh-glm-quota
 
-> dsh 插件：会话选中 GLM Coding Plan（zai-coding-cn）模型时，在「对话 / 轨迹」tab 行**最右侧**显示 5 小时用量剩余百分比徽标。
+> dsh 插件：会话选中 GLM Coding Plan（zai-coding-cn）模型时，在输入框底部的模型选择器内、当前模型文案左侧显示 5 小时用量剩余百分比。
 
 状态：**设计定稿，未开工**。数据源与通道先例均已实证（见 §1、§3），P0 约半天工作量。
 
@@ -43,8 +43,8 @@ Authorization: Bearer <api_key>
 ## 2. 功能定义
 
 - 触发条件：会话当前选中模型 ∈ zai-coding-cn 模型表（配置化，默认 `glm-*` 前缀匹配 + 模型 id 精确表双保险）。选其他 provider 模型 → 徽标隐藏。
-- 展示位置：**「对话 / 轨迹」tab 同一行最靠右**（用户定稿）。
-- 展示内容：右侧纯文字状态标记，文本 = `glm 42%`（不使用圆角背景，避免与上方下载按钮形成两个按钮状元素）；颜色阈值 绿 >50 / 黄 20–50 / 红 ≤20 / 灰 = 无数据或 stale；hover title = `GLM 5h 窗口剩余 42% · HH:MM 重置`。
+- 展示位置：输入框底部的**模型选择器内部，当前模型文案左侧**（与模型状态同一语义区域）。
+- 展示内容：纯文字元信息 `glm 42%`（不使用圆角背景）；`glm` 使用弱化灰色，百分比按余量着色；颜色阈值 绿 >50 / 黄 20–50 / 红 ≤20 / 灰 = 无数据或 stale；hover title = `GLM 5h 窗口剩余 42% · HH:MM 重置`。
 - 双主题适配：亮色直接可用，暗色挂 `body[data-ds-dark-theme]` 覆盖（web-kit 同款约定）。
 
 ## 3. 架构
@@ -63,10 +63,10 @@ Authorization: Bearer <api_key>
                │ fence 双层防御）
 ┌──────────────┴───────────────────────────┐
 │ 插件客户端半 (src/client/index.js)        │
-│  · 徽标注入：定位 tab 行 → 行尾插 pill     │
-│  · 刷新：tab 行出现时拉一次；打开期间      │
+│  · 徽标注入：定位模型选择器 → 模型文案左侧 │
+│  · 刷新：模型选择器出现时拉一次；期间      │
 │    60s 轮询；失败显示上次值/灰态           │
-│  · 选中模型判定 → 决定显示/隐藏            │
+│  · 当前模型判定 → 决定显示/隐藏            │
 └──────────────────────────────────────────┘
 ```
 
@@ -74,32 +74,31 @@ Authorization: Bearer <api_key>
 > webServer 精确路由——web-kit 已验证同款（openpath/dock 走 /web-kit），安全模型一致
 > （Caddy basic_auth + fence.js 纵深防御），少一层 rpc API 依赖。
 
-### 3.1 为什么 tab 行徽标用 DOM 增强而不是插槽
+### 3.1 为什么挂在模型选择器而不是 tab 行
 
-`conversation.view` 插槽注册的条目会被渲染成**新 tab**（tab-kit 的机制），徽标不是 tab——所以走 DOM 增强：
+用量信息描述的是当前模型，不是页面导航状态。输入框底部的模型选择器是最合适的语义容器：
 
-1. 先找标准语义容器 `[role="tablist"]`；
-2. 找可见的 CSS Modules `<hash>_tab` 类 token。桌面英文界面实测只有激活 tab 带该类，因此单个激活 tab 也会向上查找 ≤2 层，取包含 `Chats`/`Trajectory`（或中文标签）的容器；若有多个则取最小公共容器；
-3. 最后才用 {`对话`,`Chats`} × {`轨迹`,`Trajectory`} 的叶子文本公共祖先兜底；
-4. 行 `position:static` 时改 relative，徽标仍固定在行右侧；垂直 `top` 按首个可见 tab 的实际中心计算，避免行底部留白造成徽标偏低；
-5. MutationObserver + 2s 自愈 interval，`WeakSet` 去重；诊断日志 `console.info("[glm-quota] …")` 30s 节流。
+```text
+[工具]        glm 10%   GLM-5.3-Flash⌄                    [发送]
+```
 
-该方案不依赖当前界面语言，也不依赖隐藏 locale 模板节点的文档顺序。
+这样可以避开右上角下载按钮，也不会让 tab 行右侧出现孤立的第二个控件。徽标不是新 tab，
+也不改变模型选择器按钮的点击行为，只作为按钮内部的 `pointer-events:none` 元信息。
 
-### 3.2 选中模型怎么判定（已实现，P0 版）
+### 3.2 模型选择器锚点（已实现，P0 版）
 
-锚定 model-selection 的 CSS Modules 类名：`[class*="modelName"]` 稳定命中
-composer model seat / 弹窗行的模型名元素（哈希前缀随构建变，源类名后缀不变）：
+dsh 的 `dsh-client-ui-model-selection` 源码确认了稳定结构：
 
-1. 弹窗打开：选中行祖先带 `aria-checked="true"` → 优先取它；
-2. 弹窗关闭：只有 seat 一个元素 → 取第一个；
-3. 文本含 `glm`（忽略大小写）→ 显示；命中其他已知厂商（gpt/claude/deepseek/…）→ 隐藏；
-4. 无信号 → 默认显示。
+- 模型选择器按钮带 `aria-haspopup="menu"`；
+- 当前模型文本带 CSS Modules 类名 `<hash>_triggerLabel`；
+- 插件查找 `[class*="_triggerLabel"]`，再向上找到 `aria-haspopup="menu"` 的父按钮；
+- 徽标插入到该按钮内部、`triggerLabel` 之前，因此自然位于模型文案左侧。
 
-> P1 升级路径：model-selection 的 store/服务直读选中模型 id，精确匹配
-> zai-coding-cn 模型表（`glm-4.5-air/4.7/5-turbo/5.1/5.2/5.3/5.3-flash`）。
-> **教训**：初版按视口下部 30% 扫含 glm/厂商关键字的短文本，被聊天内容里的
-> deepseek/gpt 字样误伤隐藏——已废弃该启发式。
+这比依赖 tab 的中文/英文文本、弹窗列表的 `modelName` 或隐藏 locale 节点更稳定。模型切换时，
+MutationObserver 观察文本/结构变化，2 秒自愈检查会重新挂载；当前 label 含 `glm` 时显示，其他模型隐藏。
+
+显示样式是纯文字：`glm 10%`。`glm` 使用弱化灰色，百分比按余量使用绿/黄/红色；数据过期时整体降级。
+
 
 ## 4. 工程结构
 
@@ -115,7 +114,7 @@ dsh-glm-quota/
 │   │   └── fence.js        # 信任围栏（web-kit 同款：sec-fetch-site/Origin/Host 校验）
 │   └── client/
 │       ├── index.js        # 入口：installBadge
-│       ├── badge.js        # tab 行定位 / 徽标注入 / 模型判定 / 刷新调度
+│       ├── badge.js        # 模型选择器定位 / 徽标注入 / 模型判定 / 刷新调度
 │       └── usage.js        # /glm-quota 取数 + 容错（失败保留上次值标 stale）
 ├── lib/                    # 构建物（入库，install.sh 依赖；勿手改）
 ├── .gitignore              # node_modules/ *.log .DS_Store
@@ -196,22 +195,23 @@ module.exports = { name: "glm-quota", inject: ["webServer"], apply };
 // src/client/badge.js（实际实现的简化骨架）
 var REFRESH_MS = 60 * 1000;
 
-function findTabRow() {
-  // 1) [role="tablist"]
-  // 2) 可见 <hash>_tab：单激活 tab 也向上 ≤2 层找已知 tab 文本容器
-  // 3) 中英文叶子文本的最小公共祖先
+function findTriggerLabel() {
+  // 找 <hash>_triggerLabel，再向上找到 aria-haspopup="menu" 的模型选择器按钮
 }
 
-function ensureBadge(row) { /* 行尾 absolute 注入；WeakSet 去重 */ }
-function alignBadge(row) { /* badge.top 对齐首个可见 tab 的实际垂直中心 */ }
-function paint(cache) { /* remaining%、阈值色、stale、nextResetTime title */ }
+function ensureBadge(host, label) {
+  // badge 作为 host 的首个子项，插到 label 左侧；host 重建后自动迁移
+}
+function currentModelText(label) { return label.textContent.trim(); }
+function paint(cache) { /* glm 文字、remaining%、阈值色、stale、重置时间 title */ }
 
 function tick() {
-  var row = findTabRow();
-  if (!row) return;
-  ensureBadge(row);
-  alignBadge(row);
-  if (!glmModelSelected()) { hide(); return; }
+  var label = findTriggerLabel();
+  if (!label) return;
+  var host = findHost(label);
+  if (!host) return;
+  ensureBadge(host, label);
+  if (!/glm/i.test(currentModelText(label))) { hide(); return; }
   fetch("/glm-quota").then(function (r) { return r.json(); }).then(paint);
 }
 ```
@@ -224,26 +224,25 @@ function tick() {
 | --- | --- | --- |
 | 1 | 配额接口是社区逆向（cc-switch），非官方契约 | 失败保留上次值 + stale 灰态；接口字段解析集中在单函数便于跟进 |
 | 2 | 5h 为滚动窗口，语义随官方调整 | 直接消费服务端 percentage/nextResetTime，不自算窗口 |
-| 3 | dsh 升级后 tab 行结构漂移 | 文本结构匹配（多语言对）+ MO/2s 自愈；匹配失败静默隐藏不报错 |
-| 4 | `.credentials.yaml` 解析格式变化 | 双路：env 保底；解析失败时 rpc 返回 unknown，徽标灰态 |
-| 5 | key 安全 | 只在服务端进程内；rpc 回复仅 percentage/nextResetTime/fetchedAt |
-| 6 | 与 tab-kit（未来的第三个 tab）共存 | 徽标 append 在行尾，不碰插槽条目；tab 增删不影响定位逻辑 |
+| 3 | dsh 升级后模型选择器结构漂移 | 优先使用 `aria-haspopup="menu"` + `<hash>_triggerLabel` 语义/结构锚点；MO/2s 自愈 |
+| 4 | `.credentials.yaml` 解析格式变化 | 双路：env 保底；解析失败时返回 unknown，徽标灰态 |
+| 5 | key 安全 | 只在服务端进程内；HTTP 回复仅 percentage/remaining/nextResetTime/fetchedAt |
+| 6 | 模型选择器空间较窄 | `glm` 与百分比使用小号等宽字；按钮本身已有 ellipsis，徽标 flex-shrink:0 |
 
 ## 8. 分期
 
-- **P0（约半天）**：服务端轮询+缓存+rpc；客户端 tab 行徽标（定位/注入/显示条件/双主题）；手动刷新点。
-- **P1**：打开期间 60s 自动刷新；hover 重置倒计时；阈值变色打磨；composer seat 槽位探明后（若有）转正规注册。
-- **P2**：点徽标弹明细浮层（周配额 / 工具月度 / 重置时间），对齐 pi-zai-usage 的 /usage。
+- **P0（已实现）**：服务端轮询+缓存；客户端模型选择器左侧纯文字元信息；中英文/移动端/桌面端结构锚定；双主题。
+- **P1**：继续观察真实桌面端布局；必要时从 model-selection store 读取 provider/model id，替代 label 文本匹配。
+- **P2**：点击或 hover 展示周配额 / 工具额度 / 重置时间明细。
 
-## 9. 验证清单（每轮发版过一遍）（每轮发版过一遍）
+## 9. 验证清单（每轮发版过一遍）
 
-- [ ] 选中 glm 模型：tab 行右侧出现徽标，数值与 open.bigmodel.cn 控制台一致（±1%）
-- [ ] 切到非 GLM 模型（如 openai/gpt-4o）：徽标隐藏
-- [ ] 断网/改坏 key：徽标变灰并保留上次数值，不报错不闪烁
-- [ ] 明暗主题切换：徽标双主题可读
-- [ ] 桌面 + 手机（安卓壳 / PWA）三端显示与换行正常
+- [ ] 选中 glm 模型：输入框底部显示 `glm 42%`，位于当前模型文案左侧
+- [ ] 切到非 GLM 模型：`glm` 元信息隐藏，模型选择器仍可正常点击
+- [ ] 断网/改坏 key：显示灰色占位或保留上次数值，不报错不闪烁
+- [ ] 明暗主题切换：文字对比度可读
+- [ ] 桌面 + 手机（安卓壳 / PWA）均不遮挡模型名、下拉箭头和发送按钮
 - [ ] dsh 重启后 5 min 内出现数据；轮询期间 CPU/网络无可感知开销
-- [ ] tab-kit 未来上线后徽标仍在行尾且不与第三个 tab 重叠
 
 ## 10. 参考
 
