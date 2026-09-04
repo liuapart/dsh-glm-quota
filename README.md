@@ -38,13 +38,13 @@ Authorization: Bearer <api_key>
 - `~/.dsh/settings.yaml`：`llm-pi-ai.providers.zai-coding-cn.apiKeyEnv: ZAI_CODING_CN_API_KEY`
 - key 实际存放在 **`~/.dsh/.credentials.yaml`**（已确认文件含该 key 名）。
 - **注意**：dsh 的 launchd 服务环境变量里**没有**这个 env（已查 `launchctl print`）——dsh 自己走 `.credentials.yaml` 解析。插件服务端半与 dsh 同进程同权限，**读同一文件**即可；保底再探 `process.env`。
-- 红线：**key 永不出服务端**。rpc 只回 `percentage / nextResetTime / fetchedAt`。
+- 红线：**key 永不出服务端**。HTTP 路由只回 `remaining / percentage / nextResetTime / fetchedAt`。
 
 ## 2. 功能定义
 
 - 触发条件：会话当前选中模型 ∈ zai-coding-cn 模型表（配置化，默认 `glm-*` 前缀匹配 + 模型 id 精确表双保险）。选其他 provider 模型 → 徽标隐藏。
 - 展示位置：**「对话 / 轨迹」tab 同一行最靠右**（用户定稿）。
-- 展示内容：小 pill，文本 = 剩余百分比（如 `42%`）；颜色阈值 绿 >50 / 黄 20–50 / 红 ≤20 / 灰 = 无数据或 stale；hover title = `GLM 5h 窗口剩余 42% · HH:MM 重置`。
+- 展示内容：右侧纯文字状态标记，文本 = `glm 42%`（不使用圆角背景，避免与上方下载按钮形成两个按钮状元素）；颜色阈值 绿 >50 / 黄 20–50 / 红 ≤20 / 灰 = 无数据或 stale；hover title = `GLM 5h 窗口剩余 42% · HH:MM 重置`。
 - 双主题适配：亮色直接可用，暗色挂 `body[data-ds-dark-theme]` 覆盖（web-kit 同款约定）。
 
 ## 3. 架构
