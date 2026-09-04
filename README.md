@@ -78,9 +78,13 @@ Authorization: Bearer <api_key>
 
 `conversation.view` 插槽注册的条目会被渲染成**新 tab**（tab-kit 的机制），徽标不是 tab——所以走 DOM 增强：
 
-1. 结构匹配定位 tab 行：找文本 ∈ {`对话`,`Chats`} 与 {`轨迹`,`Trajectory`} 的叶节点的**公共父行**（向上爬 ≤8 层，两标签都命中的最小容器）；
-2. 行 `position:static` 时改 relative，徽标 absolute 右缘垂直居中（`right:12px`），flex 与否都能保证「最靠右」；
-3. MutationObserver + 2s 自愈 interval（sessionlog.js 同款防漂移套路），`WeakSet` 去重防重复插入；诊断日志 `console.info("[glm-quota] …")`（30s 节流）。
+1. 先找标准语义容器 `[role="tablist"]`；
+2. 找可见的 CSS Modules `<hash>_tab` 类 token。桌面英文界面实测只有激活 tab 带该类，因此单个激活 tab 也会向上查找 ≤2 层，取包含 `Chats`/`Trajectory`（或中文标签）的容器；若有多个则取最小公共容器；
+3. 最后才用 {`对话`,`Chats`} × {`轨迹`,`Trajectory`} 的叶子文本公共祖先兜底；
+4. 行 `position:static` 时改 relative，徽标仍固定在行右侧；垂直 `top` 按首个可见 tab 的实际中心计算，避免行底部留白造成徽标偏低；
+5. MutationObserver + 2s 自愈 interval，`WeakSet` 去重；诊断日志 `console.info("[glm-quota] …")` 30s 节流。
+
+该方案不依赖当前界面语言，也不依赖隐藏 locale 模板节点的文档顺序。
 
 ### 3.2 选中模型怎么判定（已实现，P0 版）
 
@@ -180,37 +184,39 @@ async function refresh() {
 function apply(ctx) {
   refresh();
   timer = setInterval(refresh, POLL_MS);           // 无 jitter 需求：单用户自用
-  // rpc channel 注册：对齐 plugin-manager 的 connection.rpc/channel API（P0 第一步核对其注册形态）
-  // channel "glm-quota:usage" → () => cache
+  // webServer.register({kind:"exact", path:"/glm-quota", handler})
+  // ctx.effect 注册轮询定时器；卸载时 clearInterval
 }
-module.exports = { name: "glm-quota", apply };
+module.exports = { name: "glm-quota", inject: ["webServer"], apply };
 ```
 
-### 6.2 客户端半（badge 核心逻辑草案）
+### 6.2 客户端半（badge 核心逻辑）
 
 ```js
-// src/client/badge.js（草案）
+// src/client/badge.js（实际实现的简化骨架）
 var REFRESH_MS = 60 * 1000;
-var GLM_IDS = null;   // 配置表，默认 glm-* 前缀
 
 function findTabRow() {
-  // 1) 找文本∈{对话,Chats} 与 {轨迹,Trajectory} 的叶子节点
-  // 2) 向上爬 ≤6 层找同时包含两者的最小容器 → 返回
+  // 1) [role="tablist"]
+  // 2) 可见 <hash>_tab：单激活 tab 也向上 ≤2 层找已知 tab 文本容器
+  // 3) 中英文叶子文本的最小公共祖先
 }
 
-function ensureBadge(row) { /* WeakSet 去重；行尾插 pill；点击预留 P2 */ }
-
-function paint(cache) { /* 剩余%=100-percentage；阈值着色；stale→灰+title 标注 */ }
+function ensureBadge(row) { /* 行尾 absolute 注入；WeakSet 去重 */ }
+function alignBadge(row) { /* badge.top 对齐首个可见 tab 的实际垂直中心 */ }
+function paint(cache) { /* remaining%、阈值色、stale、nextResetTime title */ }
 
 function tick() {
   var row = findTabRow();
   if (!row) return;
   ensureBadge(row);
+  alignBadge(row);
   if (!glmModelSelected()) { hide(); return; }
-  rpc("glm-quota:usage").then(paint).catch(paintStale);
+  fetch("/glm-quota").then(function (r) { return r.json(); }).then(paint);
 }
-// MutationObserver + 2s interval 自愈 + 打开期间 60s tick
 ```
+
+> 上面是实现底稿；可运行源码位于 `src/`，`lib/` 是 `npm run build` 生成物。
 
 ## 7. 风险与对策
 
