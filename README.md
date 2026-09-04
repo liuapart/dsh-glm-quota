@@ -52,14 +52,15 @@ Authorization: Bearer <api_key>
 ```
 ┌─ dsh 主进程 ─────────────────────────────┐
 │ 插件服务端半 (src/server/index.js)        │
-│  · 每 5 min 轮询配额接口（带 jitter）      │
+│  · 每 5 min 轮询配额接口                  │
 │  · 内存缓存 {percentage,nextResetTime,    │
 │    fetchedAt,stale}，失败保留上次值        │
-│  · 注册 rpc channel: "glm-quota:usage"    │
+│  · webServer 注册 GET /glm-quota 精确路由  │
+│    （fence.js 信任围栏，web-kit 同款）      │
 │  · 读 ~/.dsh/.credentials.yaml 取 key     │
 └──────────────┬───────────────────────────┘
-               │ connection.rpc（官方通道，
-               │ 先例：plugin-manager 32 处用法）
+               │ HTTP（同源 fetch，Caddy 认证 +
+               │ fence 双层防御）
 ┌──────────────┴───────────────────────────┐
 │ 插件客户端半 (src/client/index.js)        │
 │  · 徽标注入：定位 tab 行 → 行尾插 pill     │
@@ -69,49 +70,88 @@ Authorization: Bearer <api_key>
 └──────────────────────────────────────────┘
 ```
 
+> **决策记录**：原设计用 `connection.rpc`/channel（plugin-manager 先例），实现时改为
+> webServer 精确路由——web-kit 已验证同款（openpath/dock 走 /web-kit），安全模型一致
+> （Caddy basic_auth + fence.js 纵深防御），少一层 rpc API 依赖。
+
 ### 3.1 为什么 tab 行徽标用 DOM 增强而不是插槽
 
 `conversation.view` 插槽注册的条目会被渲染成**新 tab**（tab-kit 的机制），徽标不是 tab——所以走 DOM 增强：
 
-1. 结构匹配定位 tab 行：找文本 ∈ {`对话`,`Chats`} 与 {`轨迹`,`Trajectory`} 的叶节点的**公共父行**（向上爬 ≤6 层，两标签都命中的最小容器）；
-2. 行内 append 徽标，`margin-left:auto`（行是 flex）兜底 `position:absolute; right:…`；
-3. MutationObserver + 2s 自愈 interval（sessionlog.js 同款防漂移套路），`WeakSet` 去重防重复插入。
+1. 结构匹配定位 tab 行：找文本 ∈ {`对话`,`Chats`} 与 {`轨迹`,`Trajectory`} 的叶节点的**公共父行**（向上爬 ≤8 层，两标签都命中的最小容器）；
+2. 行 `position:static` 时改 relative，徽标 absolute 右缘垂直居中（`right:12px`），flex 与否都能保证「最靠右」；
+3. MutationObserver + 2s 自愈 interval（sessionlog.js 同款防漂移套路），`WeakSet` 去重防重复插入；诊断日志 `console.info("[glm-quota] …")`（30s 节流）。
 
-实现 P0 时顺带探明：`dsh-client-ui-model-selection` inject 了 `slots` 并注册「composer model seat」，源码已见 composer-block 概念——若存在可挂的行尾槽位，升级为正规注册（P1 优化，不阻塞）。
+### 3.2 选中模型怎么判定（已实现，P0 版）
 
-### 3.2 选中模型怎么判定（P0 探明项）
+锚定 model-selection 的 CSS Modules 类名：`[class*="modelName"]` 稳定命中
+composer model seat / 弹窗行的模型名元素（哈希前缀随构建变，源类名后缀不变）：
 
-优先级从高到低，实现时逐一验证：
+1. 弹窗打开：选中行祖先带 `aria-checked="true"` → 优先取它；
+2. 弹窗关闭：只有 seat 一个元素 → 取第一个；
+3. 文本含 `glm`（忽略大小写）→ 显示；命中其他已知厂商（gpt/claude/deepseek/…）→ 隐藏；
+4. 无信号 → 默认显示。
 
-1. `ctx` 服务面里 model-selection 的 store/服务（源码已有 `defineStore`、`models` 服务）直接读当前选中模型 id；
-2. composer seat 的模型名文本匹配（常驻可见）；
-3. /model 弹窗内选中态匹配（仅弹窗打开时）。
-
-拿到模型 id 后：`id` 在配置表内（默认表 = settings.yaml 的 zai-coding-cn 七个模型）→ 显示。
+> P1 升级路径：model-selection 的 store/服务直读选中模型 id，精确匹配
+> zai-coding-cn 模型表（`glm-4.5-air/4.7/5-turbo/5.1/5.2/5.3/5.3-flash`）。
+> **教训**：初版按视口下部 30% 扫含 glm/厂商关键字的短文本，被聊天内容里的
+> deepseek/gpt 字样误伤隐藏——已废弃该启发式。
 
 ## 4. 工程结构
 
 ```
 dsh-glm-quota/
 ├── package.json            # @apanoo/dsh-glm-quota；"dsh":{"client":{"platform":"web"}}
-├── scripts/build.mjs       # 复用 web-kit 打包器：src→lib，语法校验，部署到 profile
-├── scripts/install.sh      # 复制插件 + 幂等注册（web-kit 同款）
+├── scripts/build.mjs       # 零依赖打包器构建：src→lib，语法校验，部署到 profile
+├── scripts/install.sh      # 复制插件 + 幂等注册 cordis.patch.yml（web-kit 同款）
+├── scripts/bundle.mjs      # 零依赖打包器（web-kit 同款，150 行）
 ├── src/
-│   ├── server/index.js     # 轮询 + 缓存 + rpc channel + .credentials.yaml 解析
+│   ├── server/
+│   │   ├── index.js        # 5min 轮询 + 缓存 + /glm-quota 路由 + .credentials.yaml 解析
+│   │   └── fence.js        # 信任围栏（web-kit 同款：sec-fetch-site/Origin/Host 校验）
 │   └── client/
-│       ├── index.js        # 入口：ensureStyles + installBadge
-│       ├── badge.js        # tab 行定位 / 徽标注入 / 刷新调度
-│       └── usage.js        # rpc 封装 + 容错（超时/失败保留上次值）
-├── lib/                    # 构建物（勿手改）
-├── .gitignore              # node_modules/ lib/ *.log .DS_Store
+│       ├── index.js        # 入口：installBadge
+│       ├── badge.js        # tab 行定位 / 徽标注入 / 模型判定 / 刷新调度
+│       └── usage.js        # /glm-quota 取数 + 容错（失败保留上次值标 stale）
+├── lib/                    # 构建物（入库，install.sh 依赖；勿手改）
+├── .gitignore              # node_modules/ *.log .DS_Store
 └── README.md               # 本文档
 ```
 
-部署与注册：`npm run build` 产出到 `lib/` 并拷贝到 `~/.dsh/profiles/web/node_modules/@apanoo/dsh-glm-quota`（web-kit 同款）；注册走 profile 的 cordis patch（web-kit `scripts/install.sh` 幂等插入先例）；改 client 只需刷新，改 server 按 runbook 重启 dsh。
+## 5. 安装与卸载
 
-## 5. 核心骨架（实现时的底稿）
+**方式 A：从本仓库（推荐，dsh 官方 profile 注册方式）**
 
-### 5.1 服务端半
+```bash
+git clone <本仓库> && cd dsh-glm-quota
+bash scripts/install.sh     # lib/ 已入库，clone 后可直接装
+```
+
+脚本做三件事：① 复制 `lib/ + package.json` 到 `~/.dsh/profiles/web/node_modules/@apanoo/dsh-glm-quota/`；② `node --check` 语法自检；③ 幂等追加注册块到 `~/.dsh/profiles/web/cordis.patch.yml`（已存在则跳过）：
+
+```yaml
+- insert:
+    - id: glm-quota
+      name: '@apanoo/dsh-glm-quota'
+```
+
+**方式 B：从源码构建**
+
+```bash
+npm run build               # src/ → lib/ → 语法校验 → 部署到 profile
+bash scripts/install.sh     # 幂等：只补 patch 注册
+```
+
+**生效**：安装/改 server 后重启 dsh（`launchctl kickstart -k gui/501/com.dsh.web`）；
+只改 client 刷新浏览器即可。**卸载**：从 cordis.patch.yml 删除 insert 块 +
+`rm -rf ~/.dsh/profiles/web/node_modules/@apanoo/dsh-glm-quota`，再重启 dsh。
+
+**自检**：`curl -s http://127.0.0.1:3080/glm-quota` 应返回
+`{"ok":true,"remaining":…,"percentage":…,…}`（200 = 服务端半、key、上游接口全通）。
+
+## 6. 核心骨架（实现底稿，与 lib 产物等价）
+
+### 6.1 服务端半
 
 ```js
 // src/server/index.js（草案）
@@ -146,7 +186,7 @@ function apply(ctx) {
 module.exports = { name: "glm-quota", apply };
 ```
 
-### 5.2 客户端半（badge 核心逻辑草案）
+### 6.2 客户端半（badge 核心逻辑草案）
 
 ```js
 // src/client/badge.js（草案）
@@ -172,7 +212,7 @@ function tick() {
 // MutationObserver + 2s interval 自愈 + 打开期间 60s tick
 ```
 
-## 6. 风险与对策
+## 7. 风险与对策
 
 | # | 风险 | 对策 |
 | --- | --- | --- |
@@ -183,13 +223,13 @@ function tick() {
 | 5 | key 安全 | 只在服务端进程内；rpc 回复仅 percentage/nextResetTime/fetchedAt |
 | 6 | 与 tab-kit（未来的第三个 tab）共存 | 徽标 append 在行尾，不碰插槽条目；tab 增删不影响定位逻辑 |
 
-## 7. 分期
+## 8. 分期
 
 - **P0（约半天）**：服务端轮询+缓存+rpc；客户端 tab 行徽标（定位/注入/显示条件/双主题）；手动刷新点。
 - **P1**：打开期间 60s 自动刷新；hover 重置倒计时；阈值变色打磨；composer seat 槽位探明后（若有）转正规注册。
 - **P2**：点徽标弹明细浮层（周配额 / 工具月度 / 重置时间），对齐 pi-zai-usage 的 /usage。
 
-## 8. 验证清单（每轮发版过一遍）
+## 9. 验证清单（每轮发版过一遍）（每轮发版过一遍）
 
 - [ ] 选中 glm 模型：tab 行右侧出现徽标，数值与 open.bigmodel.cn 控制台一致（±1%）
 - [ ] 切到非 GLM 模型（如 openai/gpt-4o）：徽标隐藏
@@ -199,7 +239,7 @@ function tick() {
 - [ ] dsh 重启后 5 min 内出现数据；轮询期间 CPU/网络无可感知开销
 - [ ] tab-kit 未来上线后徽标仍在行尾且不与第三个 tab 重叠
 
-## 9. 参考
+## 10. 参考
 
 - pi-zai-usage：https://github.com/Feng-H/pi-zai-usage （npm `pi-zai-usage@0.1.0`，MIT）
 - Z.AI Devpack FAQ：https://docs.z.ai/devpack/faq

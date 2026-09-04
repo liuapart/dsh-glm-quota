@@ -1,0 +1,21 @@
+{
+  "name": "@apanoo/dsh-glm-quota",
+  "description": "GLM Coding Plan 5h 用量徽标：会话选中 glm 模型时在「对话/轨迹」tab 行右侧显示剩余百分比",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "scripts": {
+    "lint": "node --check lib/index.js && node --check lib/client.js",
+    "build": "node scripts/build.mjs"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  }
+}
