@@ -8,11 +8,12 @@
 // 视觉策略：只显示纯文字百分比「10%」，不重复显示已知的 GLM provider；不使用
 // 背景 pill，避免和页面右上角下载按钮产生第二个按钮状元素。
 //
-// 移动端适配（v0.2.4）：窄屏下底行（InputBar 的 .row，flex-wrap:wrap）放不下
-// 「工具组 + 模型簇」时会整体换行，模型按钮掉到第二行。徽标可见（GLM 选中）时
-// 给底行打标记类 dsh-gq-row，媒体查询（≤600px）内：行强制 nowrap、右侧簇改为
-// 可收缩、权限按钮可省略、行内 gap 压缩到 8px——空间不足时模型名先省略让位，
-// 结构上不可能再换行。桌面端与非 GLM 状态完全不受影响。
+// 移动端适配（v0.2.5）：窄屏下底行（InputBar 的 .row，flex-wrap:wrap）放不下
+// 「工具组 + 模型簇」时会整体换行，模型按钮掉到第二行。模型选择器存在时即给
+// 底行打标记类 dsh-gq-row（对所有模型生效），媒体查询（≤600px）内：行强制
+// nowrap、右侧簇改为可收缩、权限按钮可省略、行内 gap 压缩到 8px——空间不足时
+// 模型名先省略让位，结构上不可能再换行。百分比徽标仍仅 GLM 模型显示；
+// 桌面端不受影响。
 // ----------------------------------------------------------------------------
 var { fetchUsage } = require("./usage.js");
 
@@ -113,16 +114,14 @@ function findHost(label) {
 }
 
 // 从模型按钮向上找 composer 底行（InputBar 的 .row，类名形如 <hash>_row），
-// 按徽标可见性开关标记类 dsh-gq-row —— 移动端媒体查询据此禁止换行并压缩间距。
+// 打上标记类 dsh-gq-row —— 移动端媒体查询据此禁止换行并压缩间距。
+// v0.2.5 起对所有模型生效（不再随徽标显隐开关）。
 // 爬 8 层：若 slot 渲染时插入额外包装层，也能落到真正的行元素上。
-function syncRow(host, active) {
+function syncRow(host) {
 	var n = host;
 	for (var i = 0; i < 8 && n; i++) {
 		if (hasClassSuffix(n, "_row")) {
-			if (typeof n.classList !== "undefined") {
-				if (active) n.classList.add("dsh-gq-row");
-				else n.classList.remove("dsh-gq-row");
-			}
+			if (typeof n.classList !== "undefined") n.classList.add("dsh-gq-row");
 			return;
 		}
 		n = n.parentElement;
@@ -191,16 +190,17 @@ function tick() {
 	if (!host) { diagOnce("model trigger host not found"); return; }
 	if (!badge) makeBadge(label);
 	ensureBadge(host, label);
+	// 单行适配（v0.2.5）：对所有模型生效——只要模型选择器存在就标记底行；
+	// 徽标本身仍然只在 GLM 模型上显示。
+	syncRow(host, true);
 	var now = Date.now();
 	if (now - lastPaint < 900) return;
 	lastPaint = now;
 	if (!/glm/i.test(text || "")) {
 		badge.style.display = "none";
-		syncRow(host, false);
 		return;
 	}
 	badge.style.display = "";
-	syncRow(host, true);
 	refresh(false);
 }
 
