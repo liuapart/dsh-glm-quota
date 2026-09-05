@@ -8,11 +8,11 @@
 // 视觉策略：只显示纯文字百分比「10%」，不重复显示已知的 GLM provider；不使用
 // 背景 pill，避免和页面右上角下载按钮产生第二个按钮状元素。
 //
-// 移动端适配（v0.2.3）：窄屏下底行（InputBar 的 .row，flex-wrap:wrap）放不下
-// 「工具组 + 模型簇」时会整体换行，模型按钮掉到第二行。徽标 flex:none 的 ~34px
-// 是压垮临界宽度的常见推手，因此在徽标可见（GLM 选中）时给底行打标记类
-// dsh-gq-row，并用媒体查询（≤600px）压缩行内各处 gap（16→8 / 12→8px），
-// 桌面端与非 GLM 状态完全不受影响。
+// 移动端适配（v0.2.4）：窄屏下底行（InputBar 的 .row，flex-wrap:wrap）放不下
+// 「工具组 + 模型簇」时会整体换行，模型按钮掉到第二行。徽标可见（GLM 选中）时
+// 给底行打标记类 dsh-gq-row，媒体查询（≤600px）内：行强制 nowrap、右侧簇改为
+// 可收缩、权限按钮可省略、行内 gap 压缩到 8px——空间不足时模型名先省略让位，
+// 结构上不可能再换行。桌面端与非 GLM 状态完全不受影响。
 // ----------------------------------------------------------------------------
 var { fetchUsage } = require("./usage.js");
 
@@ -44,13 +44,17 @@ function ensureStyles() {
 		"body[data-ds-dark-theme] #dsh-gq-badge .dsh-gq-value{color:#7ee787}",
 		"body[data-ds-dark-theme] #dsh-gq-badge.dsh-gq-warn .dsh-gq-value{color:#e3b341}",
 		"body[data-ds-dark-theme] #dsh-gq-badge.dsh-gq-low .dsh-gq-value{color:#ff7b72}",
-		// 移动端底行防换行：仅在标记行内压缩间距（选择器用 [class$=] 后缀匹配
-		// CSS Modules 的 hash 前缀类名，scoped 到 dsh-gq-row，不碰其他区域）
+		// 移动端底行防换行（v0.2.4）：仅压间距不够——最差组合（长名+effort 文案+徽标）
+		// 仍可能越过临界宽度。改为结构上禁止换行：行 nowrap；右侧簇由 flex:none 改为
+		// 可收缩；权限按钮允许省略。空间不足时模型名先省略让位，两行不可能出现。
+		// 选择器用 [class$=] 后缀匹配 CSS Modules 的 hash 前缀类名，
+		// scoped 到 dsh-gq-row，不碰其他区域。
 		"@media (max-width:600px){",
-		"body .dsh-gq-row{gap:8px}",
-		".dsh-gq-row>[class$='_tools']{gap:8px}",
-		".dsh-gq-row [class$='_modes']{gap:8px}",
-		".dsh-gq-row>[class$='_trailing']{gap:8px}",
+		"body .dsh-gq-row{flex-wrap:nowrap;gap:8px}",
+		"body .dsh-gq-row>[class$='_tools']{gap:8px}",
+		"body .dsh-gq-row [class$='_modes']{gap:8px}",
+		"body .dsh-gq-row>[class$='_trailing']{flex:0 1 auto;min-width:0;gap:8px}",
+		"body .dsh-gq-row [class$='_select']{min-width:0;overflow:hidden;text-overflow:ellipsis}",
 		"}"
 	].join("\n");
 	document.head.appendChild(styleTag);
@@ -109,10 +113,11 @@ function findHost(label) {
 }
 
 // 从模型按钮向上找 composer 底行（InputBar 的 .row，类名形如 <hash>_row），
-// 按徽标可见性开关标记类 dsh-gq-row —— 移动端媒体查询据此压缩行内间距。
+// 按徽标可见性开关标记类 dsh-gq-row —— 移动端媒体查询据此禁止换行并压缩间距。
+// 爬 8 层：若 slot 渲染时插入额外包装层，也能落到真正的行元素上。
 function syncRow(host, active) {
 	var n = host;
-	for (var i = 0; i < 4 && n; i++) {
+	for (var i = 0; i < 8 && n; i++) {
 		if (hasClassSuffix(n, "_row")) {
 			if (typeof n.classList !== "undefined") {
 				if (active) n.classList.add("dsh-gq-row");

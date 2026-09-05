@@ -1,7 +1,7 @@
 {
   "name": "@apanoo/dsh-glm-quota",
   "description": "GLM Coding Plan 5h 用量徽标：会话选中 glm 模型时在 composer 模型选择器内显示剩余百分比",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "main": "lib/index.js",
   "scripts": {
