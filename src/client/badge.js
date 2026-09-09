@@ -207,7 +207,6 @@ function paint(data) {
 
 function two(n) { return ("0" + n).slice(-2); }
 function fmtHM(d) { return two(d.getHours()) + ":" + two(d.getMinutes()); }
-function fmtHMS(d) { return two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()); }
 
 function ensurePopup() {
 	if (popup) return;
@@ -258,12 +257,7 @@ function renderPopup() {
 			if (!isNaN(dt.getTime())) pRow(popup, "窗口重置", fmtHM(dt));
 		} catch (e) { }
 	}
-	if (d.fetchedAt) {
-		pRow(popup, "上次更新", fmtHMS(new Date(d.fetchedAt)));
-		// 服务端每 5 分钟轮询一次（POLL_MS），按上次拉取时间推算下次刷新点
-		if (d.stale) pRow(popup, "下次刷新", "上次失败，稍后自动重试");
-		else pRow(popup, "下次刷新", fmtHMS(new Date(d.fetchedAt + 5 * 60 * 1000)));
-	}
+	if (d.stale) pRow(popup, "数据", "缓存值（上次刷新失败）");
 }
 
 /** 弹层出现在徽标正上方，水平方向夹在视口内（composer 在底部，向上弹不会出屏）。 */
